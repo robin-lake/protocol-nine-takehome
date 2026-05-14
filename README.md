@@ -2,7 +2,7 @@
 
 Turn `http_events.jsonl` into SQLite-backed **sessions**, a small **Fastify** API, optional **OpenAI** session labels, and **Swagger UI** over **OpenAPI 3.1** spec.
 
-**Further reading:** [DESIGN.md](DESIGN.md) (model, sessionization, LLM grounding, scaling). [AI_NOTES.md](AI_NOTES.md) (how AI tools were used and what to double-check).
+**Further reading:** [DESIGN.md](DESIGN.md) (design doc). [AI_NOTES.md](AI_NOTES.md) (how AI tools were used).
 
 ## Prerequisites
 
@@ -72,7 +72,7 @@ GET http://localhost:3000/sessions/extremes
 GET http://localhost:3000/insights/time
 GET http://localhost:3000/sessions/8/summary
 POST http://localhost:3000/sessions/label
-body{"limit":10}'
+body{"limit":10}
 ```
 
 For `**GET /sessions?from=…&to=…**`, Postman **Query Params** rows must be **checked** or they are omitted from the request and the handler returns all sessions.

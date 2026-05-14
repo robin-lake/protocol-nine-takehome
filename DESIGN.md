@@ -10,8 +10,8 @@ The brief asks for ingestion + a persisted model, an API that answers three sess
 
 **SQLite** with two core entities:
 
-1. **`events`** — one row per ingested HTTP row with `ts_ms` / `ts_utc` normalized from ISO strings via `Date.parse` (UTC storage), original payload fields, and a `dedupe_key` (`ts_ms|method|host|path`) with `INSERT OR IGNORE` to drop obvious duplicates.
-2. **`sessions`** — materialized segments with wall metrics (`duration_sec`, `event_count`, `unique_hosts`), derived scores (`focus_score`, `fragmentation_score`), `summary_json` (top hosts/paths/apps for API + LLM), and optional `label` / `label_error` / `label_model` / `labeled_at`.
+1. `**events`** — one row per ingested HTTP row with `ts_ms` / `ts_utc` normalized from ISO strings via `Date.parse` (UTC storage), original payload fields, and a `dedupe_key` (`ts_ms|method|host|path`) with `INSERT OR IGNORE` to drop obvious duplicates.
+2. `sessions` — materialized segments with metrics (`duration_sec`, `event_count`, `unique_hosts`), derived scores (`focus_score`, `fragmentation_score`), `summary_json` (top hosts/paths/apps for API + LLM), and optional `label` / `label_error` / `label_model` / `labeled_at`.
 
 This shape maps directly to the three API questions and keeps the LLM context **bounded** without shipping the entire event stream per request.
 

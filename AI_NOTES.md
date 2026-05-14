@@ -13,12 +13,11 @@
 - After updating, OpenAPI + Fastify Swagger integration worked as expected.
 - Accepted LLM's suggestions for focus score, idle time to declare distinct session, and maximum session duration
 ### Overridden ###
-- Session boundary logic after empirical check with SQL window `LAG` on `ts_ms` (max gap ~32s). The plan’s idle-gap-only story is correct for “human idle” but not for always-on logs; the span cap is a deliberate product decision for this dataset.
+
 - LLM did not provide a way to query by time ranges, needed to update
 - LLM tried to make an API markdown file outlining the entire spec. Updated to use OpenAPI and Swagger
-
+- Initial LLM design based sessions on arbitrary gaps, ended up getting overwhelmed by background tasks like dropbox
 ## Places to watch for model mistakes
-
 - LLM labels can still over-interpret generic hosts; prompts require conservative JSON and list-only grounding, but reviewers should treat labels as **assistive**, not ground truth.
 - “Time on host” uses event-count-weighted session duration — **not** true dwell time.
 - **`openapi.yaml` vs code:** the contract is maintained by hand (static Swagger); new or changed routes need matching edits in the YAML or the docs will lie.
