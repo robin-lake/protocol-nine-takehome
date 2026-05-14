@@ -37,7 +37,7 @@ The earlier raw-gap approach collapsed because continuous Dropbox/Slack traffic 
 - **Focus score (0–1):** longest run over the same tab/app/category context, using foreground observations with gaps ≤ **10 minutes**, divided by estimated active time. Rewards sustained active contexts rather than Dropbox long-poll streams.
 - **Fragmentation score (0–1):** `0.55 * (activity-category switches between consecutive observations) + 0.45 * min(1, unique foreground hosts / sqrt(n))`, capped at 1. Rewards actual context churn and foreground host diversity.
 - **“Time spent on” (ranking):** foreground/unknown observations receive bounded dwell time until the next observation, multiplied by classifier weight, then grouped by activity category. Background sync, telemetry, and static assets are excluded from the ranking.
-- **Sessions in a time window:** `GET /sessions?from=…&to=…` accepts optional ISO 8601 bounds (same parse rules as ingest). With both bounds, rows are those whose `[start_ms, end_ms]` **overlaps** the interval; one bound alone gives an open-ended filter. Invalid strings or `from` > `to` return **400**.
+- **Time windows:** `GET /sessions?from=…&to=…`, `GET /sessions/extremes?from=…&to=…`, and `GET /insights/time?from=…&to=…` accept optional ISO 8601 bounds (same parse rules as ingest). Session endpoints use `[start_ms, end_ms]` **overlap** semantics; `/insights/time` filters foreground observations inside the bounds. One bound alone gives an open-ended filter. Invalid strings or `from` > `to` return **400**.
 
 ## LLM labeling design
 

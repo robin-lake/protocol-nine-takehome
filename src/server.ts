@@ -28,6 +28,27 @@ function parseOptionalIsoInstant(raw: unknown): number | undefined {
   return ms;
 }
 
+function parseTimeWindow(
+  query: { from?: string; to?: string },
+  reply: { code: (statusCode: number) => unknown },
+): { ok: true; fromMs?: number; toMs?: number } | { ok: false; error: { error: string } } {
+  let fromMs: number | undefined;
+  let toMs: number | undefined;
+  try {
+    fromMs = parseOptionalIsoInstant(query.from);
+    toMs = parseOptionalIsoInstant(query.to);
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    reply.code(400);
+    return { ok: false, error: { error: message } };
+  }
+  if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
+    reply.code(400);
+    return { ok: false, error: { error: "`from` must be less than or equal to `to`" } };
+  }
+  return { ok: true, fromMs, toMs };
+}
+
 export async function buildServer(dbPath: string) {
   const db = openDatabase(dbPath);
   const app = Fastify({ logger: true });
@@ -55,21 +76,8 @@ export async function buildServer(dbPath: string) {
   app.get("/health", async () => ({ ok: true }));
 
   app.get("/sessions", async (request, reply) => {
-    const q = request.query as { from?: string; to?: string };
-    let fromMs: number | undefined;
-    let toMs: number | undefined;
-    try {
-      fromMs = parseOptionalIsoInstant(q.from);
-      toMs = parseOptionalIsoInstant(q.to);
-    } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
-      reply.code(400);
-      return { error: message };
-    }
-    if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
-      reply.code(400);
-      return { error: "`from` must be less than or equal to `to`" };
-    }
+    const window = parseTimeWindow(request.query as { from?: string; to?: string }, reply);
+    if (!window.ok) return window.error;
 
     const base = `SELECT id, start_ts_utc, end_ts_utc, start_ms, end_ms, duration_sec,
                 event_count, unique_hosts, focus_score, fragmentation_score,
@@ -77,15 +85,15 @@ export async function buildServer(dbPath: string) {
          FROM sessions`;
     let sql = `${base} WHERE 1=1`;
     const params: number[] = [];
-    if (fromMs !== undefined && toMs !== undefined) {
+    if (window.fromMs !== undefined && window.toMs !== undefined) {
       sql += " AND start_ms <= ? AND end_ms >= ?";
-      params.push(toMs, fromMs);
-    } else if (fromMs !== undefined) {
+      params.push(window.toMs, window.fromMs);
+    } else if (window.fromMs !== undefined) {
       sql += " AND end_ms >= ?";
-      params.push(fromMs);
-    } else if (toMs !== undefined) {
+      params.push(window.fromMs);
+    } else if (window.toMs !== undefined) {
       sql += " AND start_ms <= ?";
-      params.push(toMs);
+      params.push(window.toMs);
     }
     sql += " ORDER BY start_ms ASC";
 
@@ -93,14 +101,29 @@ export async function buildServer(dbPath: string) {
     return { sessions: rows };
   });
 
-  app.get("/sessions/extremes", async () => {
+  app.get("/sessions/extremes", async (request, reply) => {
+    const window = parseTimeWindow(request.query as { from?: string; to?: string }, reply);
+    if (!window.ok) return window.error;
+
+    let sql = `SELECT id, start_ts_utc, end_ts_utc, duration_sec, event_count,
+                      focus_score, fragmentation_score, label
+               FROM sessions
+               WHERE 1=1`;
+    const params: number[] = [];
+    if (window.fromMs !== undefined && window.toMs !== undefined) {
+      sql += " AND start_ms <= ? AND end_ms >= ?";
+      params.push(window.toMs, window.fromMs);
+    } else if (window.fromMs !== undefined) {
+      sql += " AND end_ms >= ?";
+      params.push(window.fromMs);
+    } else if (window.toMs !== undefined) {
+      sql += " AND start_ms <= ?";
+      params.push(window.toMs);
+    }
+
     const sessions = db
-      .prepare(
-        `SELECT id, start_ts_utc, end_ts_utc, duration_sec, event_count,
-                focus_score, fragmentation_score, label
-         FROM sessions`,
-      )
-      .all() as {
+      .prepare(sql)
+      .all(...params) as {
       id: number;
       start_ts_utc: string;
       end_ts_utc: string;
@@ -145,8 +168,11 @@ export async function buildServer(dbPath: string) {
     };
   });
 
-  app.get("/insights/time", async () => {
-    const ranking = computeTimeOnActivities(db);
+  app.get("/insights/time", async (request, reply) => {
+    const window = parseTimeWindow(request.query as { from?: string; to?: string }, reply);
+    if (!window.ok) return window.error;
+
+    const ranking = computeTimeOnActivities(db, { fromMs: window.fromMs, toMs: window.toMs });
     return {
       metric:
         "Estimated active seconds per activity: foreground/unknown observations receive bounded dwell time until the next observation; background sync, telemetry, and static assets are excluded.",

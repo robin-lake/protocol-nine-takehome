@@ -54,22 +54,10 @@ paths:
         Omit both to return all sessions. `from` must not be after `to` when both are set.
       operationId: listSessions
       parameters:
-        - name: from
-          in: query
-          required: false
+        - $ref: "#/components/parameters/FromQuery"
           description: ISO 8601 lower bound (inclusive overlap when paired with `to`).
-          schema:
-            type: string
-            format: date-time
-            example: "2025-10-14T12:00:00.000Z"
-        - name: to
-          in: query
-          required: false
+        - $ref: "#/components/parameters/ToQuery"
           description: ISO 8601 upper bound (inclusive overlap when paired with `from`).
-          schema:
-            type: string
-            format: date-time
-            example: "2025-10-14T18:00:00.000Z"
       responses:
         "200":
           description: Session rows from persistent storage
@@ -89,9 +77,15 @@ paths:
       tags: [sessions]
       summary: Sessions with most focus vs most fragmentation
       description: |
+        Optional **`from`** / **`to`** query parameters use the same overlap semantics
+        as `GET /sessions`.
+
         Tie-breakers: higher `duration_sec` when `focus_score` ties; higher `event_count`
         when `fragmentation_score` ties. When there are no sessions, both winners are `null`.
       operationId: getSessionExtremes
+      parameters:
+        - $ref: "#/components/parameters/FromQuery"
+        - $ref: "#/components/parameters/ToQuery"
       responses:
         "200":
           description: Extremes plus human-readable metric definitions
@@ -99,6 +93,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionExtremesResponse"
+        "400":
+          description: Invalid `from`/`to` (unparseable ISO or `from` > `to`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /sessions/{id}/summary:
     get:
@@ -169,7 +169,12 @@ paths:
       description: |
         `metric` describes the foreground/unknown observation dwell-time model.
         Background sync, telemetry, and static assets are excluded from the ranking.
+        Optional **`from`** / **`to`** query parameters restrict the foreground observations
+        included in the ranking.
       operationId: getInsightsTime
+      parameters:
+        - $ref: "#/components/parameters/FromQuery"
+        - $ref: "#/components/parameters/ToQuery"
       responses:
         "200":
           description: Host ranking under the documented model
@@ -177,8 +182,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/TimeInsightsResponse"
+        "400":
+          description: Invalid `from`/`to` (unparseable ISO or `from` > `to`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
 components:
+  parameters:
+    FromQuery:
+      name: from
+      in: query
+      required: false
+      description: ISO 8601 lower bound.
+      schema:
+        type: string
+        format: date-time
+        example: "2025-10-14T12:00:00.000Z"
+    ToQuery:
+      name: to
+      in: query
+      required: false
+      description: ISO 8601 upper bound.
+      schema:
+        type: string
+        format: date-time
+        example: "2025-10-14T18:00:00.000Z"
+
   schemas:
     HealthResponse:
       type: object

@@ -8,27 +8,44 @@ interface ActivityObservationRow {
   weight: number;
 }
 
+interface TimeWindow {
+  fromMs?: number;
+  toMs?: number;
+}
+
 /**
  * Estimate active attention time from foreground-weighted observations.
  * Each observation receives the bounded dwell time until the next foreground
  * observation in the same session, grouped by human-ish activity category.
  */
-export function computeTimeOnActivities(db: SqliteDatabase): {
+export function computeTimeOnActivities(
+  db: SqliteDatabase,
+  window: TimeWindow = {},
+): {
   activity: string;
   label_hint: string;
   estimated_seconds: number;
   share: number;
 }[] {
+  const params: number[] = [];
+  let sql = `SELECT s.id AS id, ae.ts_ms AS ts_ms, ae.activity_category AS activity_category,
+                    ae.label_hint AS label_hint, ae.weight AS weight
+             FROM sessions s
+             JOIN activity_events ae ON ae.ts_ms >= s.start_ms AND ae.ts_ms <= s.end_ms
+             WHERE ae.classification IN ('foreground', 'unknown') AND ae.weight >= 0.25`;
+  if (window.fromMs !== undefined) {
+    sql += " AND ae.ts_ms >= ?";
+    params.push(window.fromMs);
+  }
+  if (window.toMs !== undefined) {
+    sql += " AND ae.ts_ms <= ?";
+    params.push(window.toMs);
+  }
+  sql += " ORDER BY s.id ASC, ae.ts_ms ASC, ae.event_id ASC";
+
   const rows = db
-    .prepare(
-      `SELECT s.id AS id, ae.ts_ms AS ts_ms, ae.activity_category AS activity_category,
-              ae.label_hint AS label_hint, ae.weight AS weight
-       FROM sessions s
-       JOIN activity_events ae ON ae.ts_ms >= s.start_ms AND ae.ts_ms <= s.end_ms
-       WHERE ae.classification IN ('foreground', 'unknown') AND ae.weight >= 0.25
-       ORDER BY s.id ASC, ae.ts_ms ASC, ae.event_id ASC`,
-    )
-    .all() as ActivityObservationRow[];
+    .prepare(sql)
+    .all(...params) as ActivityObservationRow[];
 
   const perSession = new Map<number, ActivityObservationRow[]>();
   for (const r of rows) {
