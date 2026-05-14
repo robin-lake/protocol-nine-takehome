@@ -1,0 +1,27 @@
+{
+  "name": "protocol-nine-takehome",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0 <21"
+  },
+  "scripts": {
+    "start": "tsx src/server.ts",
+    "ingest": "tsx src/cli/ingest.ts",
+    "label": "tsx src/cli/label.ts",
+    "starter": "tsx starter.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "better-sqlite3": "^11.7.0",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.2.1",
+    "openai": "^4.104.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^20.17.50",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}
