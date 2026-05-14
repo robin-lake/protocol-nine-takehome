@@ -41,8 +41,35 @@ paths:
       tags: [sessions]
       summary: List distinct activity sessions
       description: |
-        All sessions for the ingested dataset, ordered by `start_ms` ascending.
+        Sessions for the ingested dataset, ordered by `start_ms` ascending.
+
+        Optional **`from`** / **`to`** query parameters (ISO 8601 date-times, parsed like
+        `Date.parse`) restrict to sessions whose wall span **overlaps** the window:
+
+        - **Both `from` and `to`:** include sessions where `start_ms <= to` and `end_ms >= from`
+          (closed interval overlap on millisecond bounds).
+        - **`from` only:** include sessions where `end_ms >= from` (still in progress or ended after `from`).
+        - **`to` only:** include sessions where `start_ms <= to` (started by `to`).
+
+        Omit both to return all sessions. `from` must not be after `to` when both are set.
       operationId: listSessions
+      parameters:
+        - name: from
+          in: query
+          required: false
+          description: ISO 8601 lower bound (inclusive overlap when paired with `to`).
+          schema:
+            type: string
+            format: date-time
+            example: "2025-10-14T12:00:00.000Z"
+        - name: to
+          in: query
+          required: false
+          description: ISO 8601 upper bound (inclusive overlap when paired with `from`).
+          schema:
+            type: string
+            format: date-time
+            example: "2025-10-14T18:00:00.000Z"
       responses:
         "200":
           description: Session rows from persistent storage
@@ -50,6 +77,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/SessionsListResponse"
+        "400":
+          description: Invalid `from`/`to` (unparseable ISO or `from` > `to`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   /sessions/extremes:
     get:

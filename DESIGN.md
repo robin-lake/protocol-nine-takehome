@@ -34,6 +34,7 @@ This shape maps directly to the three API questions and keeps the LLM context **
 - **Focus score (0–1):** longest run of consecutive events sharing the same `(source_app, tab_id)` where each step gap ≤ **2 minutes**, divided by the session wall span. Rewards sustained single-tab / single-app stretches.
 - **Fragmentation score (0–1):** `0.55 * (app switches between consecutive events) + 0.45 * min(1, unique_hosts / sqrt(n))`, capped at 1. Rewards rapid app churn and host diversity.
 - **“Time spent on” (ranking):** for each session, allocate its `duration_sec` across hosts **in proportion to event counts** inside that session, then sum globally by host. This is a deliberate proxy: HTTP events are not dwell time, but this definition is stable, explainable, and cheap.
+- **Sessions in a time window:** `GET /sessions?from=…&to=…` accepts optional ISO 8601 bounds (same parse rules as ingest). With both bounds, rows are those whose `[start_ms, end_ms]` **overlaps** the interval; one bound alone gives an open-ended filter. Invalid strings or `from` > `to` return **400**.
 
 ## LLM labeling design
 

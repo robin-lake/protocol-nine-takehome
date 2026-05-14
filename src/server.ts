@@ -16,6 +16,18 @@ function getDbPath(): string {
   return process.env.DB_PATH ?? DEFAULT_DB_PATH;
 }
 
+/** Parse optional query `from` / `to` as ISO 8601 (same family as `Date.parse` on events). */
+function parseOptionalIsoInstant(raw: unknown): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const s = String(raw).trim();
+  if (s === "") return undefined;
+  const ms = Date.parse(s);
+  if (Number.isNaN(ms)) {
+    throw new Error("Invalid `from` or `to`: expected ISO 8601 date-time");
+  }
+  return ms;
+}
+
 export async function buildServer(dbPath: string) {
   const db = openDatabase(dbPath);
   const app = Fastify({ logger: true });
@@ -42,15 +54,42 @@ export async function buildServer(dbPath: string) {
 
   app.get("/health", async () => ({ ok: true }));
 
-  app.get("/sessions", async () => {
-    const rows = db
-      .prepare(
-        `SELECT id, start_ts_utc, end_ts_utc, start_ms, end_ms, duration_sec,
+  app.get("/sessions", async (request, reply) => {
+    const q = request.query as { from?: string; to?: string };
+    let fromMs: number | undefined;
+    let toMs: number | undefined;
+    try {
+      fromMs = parseOptionalIsoInstant(q.from);
+      toMs = parseOptionalIsoInstant(q.to);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : String(e);
+      reply.code(400);
+      return { error: message };
+    }
+    if (fromMs !== undefined && toMs !== undefined && fromMs > toMs) {
+      reply.code(400);
+      return { error: "`from` must be less than or equal to `to`" };
+    }
+
+    const base = `SELECT id, start_ts_utc, end_ts_utc, start_ms, end_ms, duration_sec,
                 event_count, unique_hosts, focus_score, fragmentation_score,
                 summary_json, label, label_model, label_error, labeled_at
-         FROM sessions ORDER BY start_ms ASC`,
-      )
-      .all();
+         FROM sessions`;
+    let sql = `${base} WHERE 1=1`;
+    const params: number[] = [];
+    if (fromMs !== undefined && toMs !== undefined) {
+      sql += " AND start_ms <= ? AND end_ms >= ?";
+      params.push(toMs, fromMs);
+    } else if (fromMs !== undefined) {
+      sql += " AND end_ms >= ?";
+      params.push(fromMs);
+    } else if (toMs !== undefined) {
+      sql += " AND start_ms <= ?";
+      params.push(toMs);
+    }
+    sql += " ORDER BY start_ms ASC";
+
+    const rows = db.prepare(sql).all(...params);
     return { sessions: rows };
   });
 

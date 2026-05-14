@@ -19,6 +19,7 @@ npm run ingest
 ```bash
 curl -s http://localhost:3000/health
 curl -s http://localhost:3000/sessions | jq '.sessions | length'
+curl -sG 'http://localhost:3000/sessions' --data-urlencode 'from=2025-10-14T12:00:00-07:00' --data-urlencode 'to=2025-10-14T18:00:00-07:00' | jq '.sessions | length'
 curl -s http://localhost:3000/sessions/extremes | jq .
 curl -s http://localhost:3000/insights/time | jq '.ranking[:10]'
 curl -s http://localhost:3000/sessions/1/summary | jq .
