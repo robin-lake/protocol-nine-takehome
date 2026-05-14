@@ -44,7 +44,7 @@ The earlier raw-gap approach collapsed because continuous Dropbox/Slack traffic 
 - **Provider:** OpenAI Chat Completions (`gpt-4o-mini` default), `OPENAI_API_KEY` + optional `OPENAI_MODEL`.
 - **Grounding:** system prompt requires JSON output (`label`, `rationale`, `confidence`) and forbids inventing destinations not present in the foreground activity lists. Background rollups are shown only as “do not use as primary label” context.
 - **Context caps:** only session bounds, foreground category/hint/host/path/app rollups, and truncated background rollups go into the prompt — never the full event list.
-- **Persistence & cost:** labels stored on `sessions`; `POST /sessions/label` and `npm run label` skip rows that already have `label`. Sequential calls with a small delay reduce burst rate limits. Failures write `label_error` and leave the API usable without labels.
+- **Persistence & cost:** labeling is an explicit batch/API step, not part of ingest, so the core model works without an LLM key. Labels are stored on `sessions`; `POST /sessions/label` and `npm run label` skip rows that already have `label`. Sequential calls with a small delay reduce burst rate limits. Failures write `label_error` and leave the API usable without labels.
 - **Failure modes:** missing key, timeouts/model errors, malformed JSON — caught per session so one bad row does not abort the batch.
 
 ## Scaling beyond one user / one day

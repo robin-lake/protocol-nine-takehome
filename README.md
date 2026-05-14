@@ -38,8 +38,14 @@ Rebuild SQLite from the JSONL (wipes and rebuilds `events`, derived `activity_ev
 npm run ingest
 # optional: npm run ingest -- /path/to/other.jsonl
 ```
+## Label sessions (LLM)
 
-Start the API:
+```bash
+npm run label
+```
+
+
+## Start the API:
 
 ```bash
 npm start
@@ -97,11 +103,6 @@ body{"limit":10}
 
 For endpoints with `from` / `to`, Postman **Query Params** rows must be **checked** or they are omitted from the request and the handler returns the unfiltered result.
 
-## Label sessions (LLM)
-
-```bash
-npm run label
-```
 
 ## Activity modeling note
 
