@@ -56,7 +56,7 @@ curl -s http://localhost:3000/sessions/extremes | jq .
 curl -s http://localhost:3000/insights/time | jq '.ranking[:5]'
 ```
 
-Full contract: [`API.md`](API.md).
+Full contract: [`openapi.yaml`](openapi.yaml). With the server running: Swagger UI at `/docs`, OpenAPI JSON at `/docs/json`. Notes and curl examples: [`API.md`](API.md).
 
 ## Label sessions (LLM)
 

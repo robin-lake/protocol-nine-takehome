@@ -1,0 +1,389 @@
+openapi: 3.1.0
+info:
+  title: HTTP Activity API
+  description: |
+    JSON API over ingested HTTP activity: sessions, focus/fragmentation extremes,
+    time-on-host insights, and optional LLM session labels.
+
+    Run `npm run ingest` before calling session or insight routes so SQLite is populated.
+
+    **Interactive docs:** Swagger UI is served at `/docs` when the API server is running (OpenAPI JSON at `/docs/json`).
+  version: 1.0.0
+
+servers:
+  - url: http://localhost:3000
+    description: Default local server (`PORT` / `HOST` override the port and bind address)
+
+tags:
+  - name: meta
+    description: Service health
+  - name: sessions
+    description: Activity sessions and labeling
+  - name: insights
+    description: Aggregated usage metrics
+
+paths:
+  /health:
+    get:
+      tags: [meta]
+      summary: Liveness check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /sessions:
+    get:
+      tags: [sessions]
+      summary: List distinct activity sessions
+      description: |
+        All sessions for the ingested dataset, ordered by `start_ms` ascending.
+      operationId: listSessions
+      responses:
+        "200":
+          description: Session rows from persistent storage
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionsListResponse"
+
+  /sessions/extremes:
+    get:
+      tags: [sessions]
+      summary: Sessions with most focus vs most fragmentation
+      description: |
+        Tie-breakers: higher `duration_sec` when `focus_score` ties; higher `event_count`
+        when `fragmentation_score` ties. When there are no sessions, both winners are `null`.
+      operationId: getSessionExtremes
+      responses:
+        "200":
+          description: Extremes plus human-readable metric definitions
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionExtremesResponse"
+
+  /sessions/{id}/summary:
+    get:
+      tags: [sessions]
+      summary: One session with parsed summary rollups
+      operationId: getSessionSummary
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Session primary key
+          schema:
+            type: integer
+            minimum: 1
+      responses:
+        "200":
+          description: Session row plus parsed `summary` object
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SessionSummaryDetailResponse"
+        "400":
+          description: Invalid session id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Session not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /sessions/label:
+    post:
+      tags: [sessions]
+      summary: Run LLM labeler for pending sessions
+      description: |
+        Labels up to `limit` sessions that have `label` null (default 50). Requires
+        `OPENAI_API_KEY` in the server environment. Labels are persisted; failures
+        set `label_error` per row.
+      operationId: postSessionsLabel
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LabelSessionsRequest"
+      responses:
+        "200":
+          description: Batch labeling finished (per-row errors counted in `errors`)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LabelSessionsResponse"
+        "400":
+          description: Missing API key or other configuration / batch error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /insights/time:
+    get:
+      tags: [insights]
+      summary: Estimated time spent per host
+      description: |
+        `metric` describes the attribution model. Ranking is sorted by
+        `estimated_seconds` descending.
+      operationId: getInsightsTime
+      responses:
+        "200":
+          description: Host ranking under the documented model
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TimeInsightsResponse"
+
+components:
+  schemas:
+    HealthResponse:
+      type: object
+      required: [ok]
+      properties:
+        ok:
+          type: boolean
+          example: true
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    HostTimeRank:
+      type: object
+      required: [host, estimated_seconds, share]
+      properties:
+        host:
+          type: string
+        estimated_seconds:
+          type: number
+          format: float
+          description: Rounded to one decimal place in the implementation
+        share:
+          type: number
+          format: float
+          description: Share of total estimated seconds (0–1), three decimal places
+
+    TimeInsightsResponse:
+      type: object
+      required: [metric, ranking]
+      properties:
+        metric:
+          type: string
+          description: Human-readable definition of the attribution model
+        ranking:
+          type: array
+          items:
+            $ref: "#/components/schemas/HostTimeRank"
+
+    CountTuple:
+      type: array
+      minItems: 2
+      maxItems: 2
+      prefixItems:
+        - type: string
+        - type: integer
+          minimum: 0
+      description: Pair of label and count (e.g. hostname and event count)
+
+    SessionSummary:
+      type: object
+      required: [topHosts, topPaths, apps]
+      properties:
+        topHosts:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountTuple"
+        topPaths:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountTuple"
+        apps:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountTuple"
+
+    Session:
+      type: object
+      required:
+        - id
+        - start_ts_utc
+        - end_ts_utc
+        - start_ms
+        - end_ms
+        - duration_sec
+        - event_count
+        - unique_hosts
+        - focus_score
+        - fragmentation_score
+        - summary_json
+      properties:
+        id:
+          type: integer
+        start_ts_utc:
+          type: string
+        end_ts_utc:
+          type: string
+        start_ms:
+          type: integer
+          format: int64
+        end_ms:
+          type: integer
+          format: int64
+        duration_sec:
+          type: number
+          format: float
+        event_count:
+          type: integer
+        unique_hosts:
+          type: integer
+        focus_score:
+          type: number
+          format: float
+        fragmentation_score:
+          type: number
+          format: float
+        summary_json:
+          type: string
+          description: Stringified JSON rollup (hosts, paths, apps)
+        label:
+          type: string
+          nullable: true
+        label_model:
+          type: string
+          nullable: true
+        label_error:
+          type: string
+          nullable: true
+        labeled_at:
+          type: string
+          nullable: true
+          description: ISO 8601 timestamp when the label was written
+
+    SessionExtremeRow:
+      type: object
+      required:
+        - id
+        - start_ts_utc
+        - end_ts_utc
+        - duration_sec
+        - event_count
+        - focus_score
+        - fragmentation_score
+      properties:
+        id:
+          type: integer
+        start_ts_utc:
+          type: string
+        end_ts_utc:
+          type: string
+        duration_sec:
+          type: number
+          format: float
+        event_count:
+          type: integer
+        focus_score:
+          type: number
+          format: float
+        fragmentation_score:
+          type: number
+          format: float
+        label:
+          type: string
+          nullable: true
+
+    ScoreDefinitions:
+      type: object
+      required: [focus_score, fragmentation_score]
+      properties:
+        focus_score:
+          type: string
+        fragmentation_score:
+          type: string
+
+    SessionExtremesResponse:
+      type: object
+      required: [most_sustained_focus, most_fragmented, definitions]
+      properties:
+        most_sustained_focus:
+          anyOf:
+            - type: "null"
+            - $ref: "#/components/schemas/SessionExtremeRow"
+        most_fragmented:
+          anyOf:
+            - type: "null"
+            - $ref: "#/components/schemas/SessionExtremeRow"
+        definitions:
+          $ref: "#/components/schemas/ScoreDefinitions"
+
+    SessionsListResponse:
+      type: object
+      required: [sessions]
+      properties:
+        sessions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Session"
+
+    SessionSummaryDetailResponse:
+      type: object
+      required:
+        - id
+        - start_ts_utc
+        - end_ts_utc
+        - duration_sec
+        - event_count
+        - summary_json
+        - summary
+      properties:
+        id:
+          type: integer
+        start_ts_utc:
+          type: string
+        end_ts_utc:
+          type: string
+        duration_sec:
+          type: number
+          format: float
+        event_count:
+          type: integer
+        summary_json:
+          type: string
+        label:
+          type: string
+          nullable: true
+        summary:
+          $ref: "#/components/schemas/SessionSummary"
+
+    LabelSessionsRequest:
+      type: object
+      properties:
+        limit:
+          type: integer
+          minimum: 1
+          default: 50
+          description: Maximum number of sessions to label in this request
+
+    LabelSessionsResponse:
+      type: object
+      required: [labeled, errors]
+      properties:
+        labeled:
+          type: integer
+          minimum: 0
+        errors:
+          type: integer
+          minimum: 0

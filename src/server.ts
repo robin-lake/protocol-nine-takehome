@@ -1,4 +1,8 @@
 import "dotenv/config";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import fastifySwagger from "@fastify/swagger";
+import fastifySwaggerUi from "@fastify/swagger-ui";
 import Fastify from "fastify";
 import { openDatabase } from "./db.js";
 import { DEFAULT_DB_PATH } from "./paths.js";
@@ -6,13 +10,31 @@ import { computeTimeOnHosts } from "./insights.js";
 import { labelAllPendingSessions } from "./llm.js";
 import type { SessionSummary } from "./types.js";
 
+const OPENAPI_PATH = join(dirname(fileURLToPath(import.meta.url)), "..", "openapi.yaml");
+
 function getDbPath(): string {
   return process.env.DB_PATH ?? DEFAULT_DB_PATH;
 }
 
-export function buildServer(dbPath: string) {
+export async function buildServer(dbPath: string) {
   const db = openDatabase(dbPath);
   const app = Fastify({ logger: true });
+
+  await app.register(fastifySwagger, {
+    mode: "static",
+    specification: {
+      path: OPENAPI_PATH,
+      baseDir: dirname(OPENAPI_PATH),
+    },
+  });
+
+  await app.register(fastifySwaggerUi, {
+    routePrefix: "/docs",
+    uiConfig: {
+      docExpansion: "list",
+      deepLinking: true,
+    },
+  });
 
   app.addHook("onClose", async () => {
     db.close();
@@ -142,11 +164,12 @@ export function buildServer(dbPath: string) {
 
 async function main(): Promise<void> {
   const dbPath = getDbPath();
-  const app = buildServer(dbPath);
+  const app = await buildServer(dbPath);
   const port = Number(process.env.PORT ?? 3000);
   const host = process.env.HOST ?? "0.0.0.0";
   await app.listen({ port, host });
   app.log.info(`Listening on http://${host}:${port} (db: ${dbPath})`);
+  app.log.info(`Swagger UI: http://${host === "0.0.0.0" ? "localhost" : host}:${port}/docs`);
 }
 
 main().catch((err) => {
