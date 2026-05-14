@@ -1,6 +1,6 @@
 # HTTP Activity Intelligence (take-home)
 
-Turn `http_events.jsonl` into SQLite-backed **sessions**, a small **Fastify** API, optional **OpenAI** session labels, and **Swagger UI** over **OpenAPI 3.1** spec.
+Turn `http_events.jsonl` into SQLite-backed **foreground-weighted sessions**, a small **Fastify** API, optional **OpenAI** session labels, and **Swagger UI** over **OpenAPI 3.1** spec.
 
 **Further reading:** [DESIGN.md](DESIGN.md) (design doc). [AI_NOTES.md](AI_NOTES.md) (how AI tools were used).
 
@@ -82,6 +82,10 @@ For `**GET /sessions?from=…&to=…**`, Postman **Query Params** rows must be *
 ```bash
 npm run label
 ```
+
+## Activity modeling note
+
+Raw HTTP volume is not treated as attention. Ingest builds a derived `activity_events` table that classifies each request as foreground, background, asset, or unknown. Session boundaries, focus/fragmentation scores, time-spent rankings, and LLM prompts use foreground-weighted observations; Dropbox/Slack polling, telemetry, and static assets are retained as background context but do not dominate the primary outputs.
 
 ## Other commands
 

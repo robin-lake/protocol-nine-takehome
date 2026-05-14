@@ -34,6 +34,26 @@ CREATE TABLE IF NOT EXISTS events (
 
 CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts_ms);
 
+CREATE TABLE IF NOT EXISTS activity_events (
+  event_id INTEGER PRIMARY KEY,
+  ts_ms INTEGER NOT NULL,
+  ts_utc TEXT NOT NULL,
+  source_app TEXT NOT NULL,
+  tab_id TEXT,
+  host TEXT NOT NULL,
+  path TEXT,
+  canonical_host TEXT NOT NULL,
+  activity_category TEXT NOT NULL,
+  label_hint TEXT NOT NULL,
+  classification TEXT NOT NULL CHECK (classification IN ('foreground', 'background', 'asset', 'unknown')),
+  weight REAL NOT NULL,
+  reason TEXT NOT NULL,
+  FOREIGN KEY (event_id) REFERENCES events(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_activity_ts ON activity_events(ts_ms);
+CREATE INDEX IF NOT EXISTS idx_activity_class ON activity_events(classification, weight);
+
 CREATE TABLE IF NOT EXISTS sessions (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   start_ts_utc TEXT NOT NULL,

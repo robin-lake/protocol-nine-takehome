@@ -3,6 +3,7 @@ import { openDatabase, type SqliteDatabase } from "../db.js";
 import { DEFAULT_DB_PATH, DEFAULT_JSONL_PATH } from "../paths.js";
 import { parseTimestampToUtcMs, toIsoUtc } from "../time.js";
 import type { RawHttpEvent } from "../types.js";
+import { rebuildActivityEvents } from "../activity.js";
 import { rebuildSessions } from "../sessionize.js";
 
 function dedupeKey(tsMs: number, method: string, host: string, path: string | null): string {
@@ -17,6 +18,7 @@ export function ingestFromJsonl(
   const clear = options.clear ?? true;
   if (clear) {
     db.exec("DELETE FROM sessions");
+    db.exec("DELETE FROM activity_events");
     db.exec("DELETE FROM events");
   }
 
@@ -70,6 +72,7 @@ export function ingestFromJsonl(
   }
   insertMany(parsed);
 
+  rebuildActivityEvents(db);
   rebuildSessions(db);
   return { inserted, skipped, lines: lines.length };
 }

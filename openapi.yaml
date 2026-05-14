@@ -2,8 +2,8 @@ openapi: 3.1.0
 info:
   title: HTTP Activity API
   description: |
-    JSON API over ingested HTTP activity: sessions, focus/fragmentation extremes,
-    time-on-host insights, and optional LLM session labels.
+    JSON API over ingested HTTP activity: foreground-weighted sessions,
+    focus/fragmentation extremes, time-on-activity insights, and optional LLM session labels.
 
     Run `npm run ingest` before calling session or insight routes so SQLite is populated.
 
@@ -20,7 +20,7 @@ tags:
   - name: sessions
     description: Activity sessions and labeling
   - name: insights
-    description: Aggregated usage metrics
+    description: Aggregated activity metrics
 
 paths:
   /health:
@@ -165,10 +165,10 @@ paths:
   /insights/time:
     get:
       tags: [insights]
-      summary: Estimated time spent per host
+      summary: Estimated time spent per activity
       description: |
-        `metric` describes the attribution model. Ranking is sorted by
-        `estimated_seconds` descending.
+        `metric` describes the foreground/unknown observation dwell-time model.
+        Background sync, telemetry, and static assets are excluded from the ranking.
       operationId: getInsightsTime
       responses:
         "200":
@@ -195,16 +195,20 @@ components:
         error:
           type: string
 
-    HostTimeRank:
+    ActivityTimeRank:
       type: object
-      required: [host, estimated_seconds, share]
+      required: [activity, label_hint, estimated_seconds, share]
       properties:
-        host:
+        activity:
           type: string
+          description: Human-ish activity category inferred from foreground evidence
+        label_hint:
+          type: string
+          description: Most representative foreground hint within this activity
         estimated_seconds:
           type: number
           format: float
-          description: Rounded to one decimal place in the implementation
+          description: Foreground-weighted bounded dwell time, rounded to one decimal place
         share:
           type: number
           format: float
@@ -220,7 +224,7 @@ components:
         ranking:
           type: array
           items:
-            $ref: "#/components/schemas/HostTimeRank"
+            $ref: "#/components/schemas/ActivityTimeRank"
 
     CountTuple:
       type: array
@@ -228,26 +232,63 @@ components:
       maxItems: 2
       prefixItems:
         - type: string
-        - type: integer
+        - type: number
           minimum: 0
-      description: Pair of label and count (e.g. hostname and event count)
+      description: Pair of label and count/weight
 
     SessionSummary:
       type: object
-      required: [topHosts, topPaths, apps]
+      required:
+        - foregroundEventCount
+        - backgroundEventCount
+        - topActivityCategories
+        - topActivityHints
+        - topHosts
+        - topPaths
+        - apps
+        - background
       properties:
+        foregroundEventCount:
+          type: integer
+          description: Requests treated as foreground/unknown observations for session modeling
+        backgroundEventCount:
+          type: integer
+          description: Background sync, telemetry, and asset requests in the same window
+        topActivityCategories:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountTuple"
+        topActivityHints:
+          type: array
+          items:
+            $ref: "#/components/schemas/CountTuple"
         topHosts:
           type: array
+          description: Foreground-weighted hosts
           items:
             $ref: "#/components/schemas/CountTuple"
         topPaths:
           type: array
+          description: Foreground-weighted paths
           items:
             $ref: "#/components/schemas/CountTuple"
         apps:
           type: array
+          description: Foreground-weighted source apps
           items:
             $ref: "#/components/schemas/CountTuple"
+        background:
+          type: object
+          required: [topHosts, topReasons]
+          properties:
+            topHosts:
+              type: array
+              items:
+                $ref: "#/components/schemas/CountTuple"
+            topReasons:
+              type: array
+              items:
+                $ref: "#/components/schemas/CountTuple"
 
     Session:
       type: object
@@ -279,10 +320,13 @@ components:
         duration_sec:
           type: number
           format: float
+          description: Estimated active seconds from bounded foreground-observation dwell time
         event_count:
           type: integer
+          description: Foreground/unknown observations used to build the session
         unique_hosts:
           type: integer
+          description: Unique foreground-weighted canonical hosts
         focus_score:
           type: number
           format: float
@@ -291,7 +335,7 @@ components:
           format: float
         summary_json:
           type: string
-          description: Stringified JSON rollup (hosts, paths, apps)
+          description: Stringified JSON rollup (foreground activity, hosts, paths, apps, and background noise)
         label:
           type: string
           nullable: true

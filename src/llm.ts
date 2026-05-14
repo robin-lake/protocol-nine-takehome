@@ -15,24 +15,37 @@ export interface SessionLabelRow {
 }
 
 function formatSummaryForPrompt(summary: SessionSummary): string {
+  const categories = summary.topActivityCategories.slice(0, 8);
+  const hints = summary.topActivityHints.slice(0, 10);
   const hosts = summary.topHosts.slice(0, MAX_TOP_HOSTS_IN_PROMPT);
   const paths = summary.topPaths.slice(0, MAX_TOP_PATHS_IN_PROMPT);
   const apps = summary.apps;
   return [
-    "Top hosts (hostname: count):",
+    `Foreground observations: ${summary.foregroundEventCount}`,
+    `Background/asset requests in same window: ${summary.backgroundEventCount}`,
+    "Primary activity categories (category: foreground weight):",
+    ...categories.map(([h, n]) => `  - ${h}: ${n}`),
+    "Primary label hints (hint: foreground weight):",
+    ...hints.map(([h, n]) => `  - ${h}: ${n}`),
+    "Foreground hosts (hostname: foreground weight):",
     ...hosts.map(([h, n]) => `  - ${h}: ${n}`),
-    "Top paths (path: count):",
+    "Foreground paths (path: foreground weight):",
     ...paths.map(([p, n]) => `  - ${p || "(empty)"}: ${n}`),
-    "Apps (app: count):",
+    "Foreground apps (app: foreground weight):",
     ...apps.map(([a, n]) => `  - ${a}: ${n}`),
+    "Background noise (do NOT use as the primary label):",
+    ...summary.background.topHosts.slice(0, 8).map(([h, n]) => `  - ${h}: ${n}`),
+    "Background reasons:",
+    ...summary.background.topReasons.slice(0, 8).map(([h, n]) => `  - ${h}: ${n}`),
   ].join("\n");
 }
 
 const SYSTEM_PROMPT = `You label a single user's HTTP activity session for an internal analytics prototype.
 Rules:
 - Output MUST be a single JSON object with keys: label (string, max 120 chars), rationale (string, max 240 chars), confidence ("high"|"medium"|"low").
-- The label MUST only describe patterns visible in the provided summary lists (hosts, paths, apps). Do not invent sites or activities not supported by the lists.
-- If the session is mostly background sync/polling, say so using only app/host names from the lists (do not reuse the same opening clause as other sessions when the distinctive paths or hosts differ).
+- The label MUST only describe patterns visible in the provided foreground activity lists. Do not invent sites or activities not supported by the lists.
+- Background noise is supplied only as cautionary context. Do not label a session as Dropbox/Slack/Gmail sync unless there is little or no foreground evidence.
+- If foreground evidence is sparse or ambiguous, use a conservative label and set confidence to "low".
 - If ambiguous, use a conservative label and set confidence to "low".`;
 
 export async function labelSession(

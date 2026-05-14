@@ -6,7 +6,7 @@ import fastifySwaggerUi from "@fastify/swagger-ui";
 import Fastify from "fastify";
 import { openDatabase } from "./db.js";
 import { DEFAULT_DB_PATH } from "./paths.js";
-import { computeTimeOnHosts } from "./insights.js";
+import { computeTimeOnActivities } from "./insights.js";
 import { labelAllPendingSessions } from "./llm.js";
 import type { SessionSummary } from "./types.js";
 
@@ -117,9 +117,9 @@ export async function buildServer(dbPath: string) {
         most_fragmented: null,
         definitions: {
           focus_score:
-            "Longest single (source_app, tab_id) run with inter-event gaps ≤ 2m, divided by session span (0–1).",
+            "Longest single tab/app/category run over foreground-weighted observations, divided by estimated active time (0–1).",
           fragmentation_score:
-            "Weighted mix of app-switch rate between consecutive events and unique-host diversity (0–1, higher = more fragmented).",
+            "Weighted mix of activity-category switching and foreground host diversity (0–1, higher = more fragmented).",
         },
       };
     }
@@ -138,18 +138,18 @@ export async function buildServer(dbPath: string) {
       most_fragmented: byFrag[0] ?? null,
       definitions: {
         focus_score:
-          "Longest single (source_app, tab_id) run with inter-event gaps ≤ 2m, divided by session span (0–1).",
+          "Longest single tab/app/category run over foreground-weighted observations, divided by estimated active time (0–1).",
         fragmentation_score:
-          "Weighted mix of app-switch rate between consecutive events and unique-host diversity (0–1, higher = more fragmented).",
+          "Weighted mix of activity-category switching and foreground host diversity (0–1, higher = more fragmented).",
       },
     };
   });
 
   app.get("/insights/time", async () => {
-    const ranking = computeTimeOnHosts(db);
+    const ranking = computeTimeOnActivities(db);
     return {
       metric:
-        "Estimated seconds per host: each session's wall-clock span is allocated across hosts in proportion to raw HTTP event counts inside that session, then summed.",
+        "Estimated active seconds per activity: foreground/unknown observations receive bounded dwell time until the next observation; background sync, telemetry, and static assets are excluded.",
       ranking,
     };
   });

@@ -8,12 +8,13 @@ The brief asks for ingestion + a persisted model, an API that answers three sess
 
 ## Data model (chosen)
 
-**SQLite** with two core entities:
+**SQLite** with three core entities:
 
-1. `**events`** — one row per ingested HTTP row with `ts_ms` / `ts_utc` normalized from ISO strings via `Date.parse` (UTC storage), original payload fields, and a `dedupe_key` (`ts_ms|method|host|path`) with `INSERT OR IGNORE` to drop obvious duplicates.
-2. `sessions` — materialized segments with metrics (`duration_sec`, `event_count`, `unique_hosts`), derived scores (`focus_score`, `fragmentation_score`), `summary_json` (top hosts/paths/apps for API + LLM), and optional `label` / `label_error` / `label_model` / `labeled_at`.
+1. `events` — one row per ingested HTTP row with `ts_ms` / `ts_utc` normalized from ISO strings via `Date.parse` (UTC storage), original payload fields, and a `dedupe_key` (`ts_ms|method|host|path`) with `INSERT OR IGNORE` to drop obvious duplicates.
+2. `activity_events` — a derived, auditable classification of each request as `foreground`, `background`, `asset`, or `unknown`, plus a canonical host, activity category, label hint, weight, and reason. Slack/Dropbox polling, analytics, and CDN/static requests are retained but downweighted or excluded from attention metrics.
+3. `sessions` — materialized segments built from foreground/unknown observations with metrics (`duration_sec`, `event_count`, `unique_hosts`), derived scores (`focus_score`, `fragmentation_score`), `summary_json` (foreground activity + background rollups for API + LLM), and optional `label` / `label_error` / `label_model` / `labeled_at`.
 
-This shape maps directly to the three API questions and keeps the LLM context **bounded** without shipping the entire event stream per request.
+This shape maps directly to the three API questions, keeps the LLM context **bounded**, and prevents background HTTP volume from being mistaken for human attention.
 
 ## Alternatives considered (and rejected)
 
@@ -23,24 +24,26 @@ This shape maps directly to the three API questions and keeps the LLM context **
 
 ## Sessionization
 
-**Primary rule:** sort events by `ts_ms` and break a session when the gap to the previous event exceeds **12 minutes** (`IDLE_GAP_MS`).
+**Primary rule:** classify events first, then sort foreground/unknown observations by `ts_ms` and break a session when the gap to the previous active observation exceeds **20 minutes** (`IDLE_GAP_MS`), when the activity category changes after an **8 minute** gap, or when an active span exceeds **2 hours**. The span cap is a guardrail for dense foreground streams, not a claim that two hours is a universal human session length.
 
-**Pragmatic addition:** cap wall-clock span at **3 hours** (`MAX_SESSION_SPAN_MS`). The sample dataset has **no** 12+ minute inter-event gap (continuous Dropbox/Slack traffic keeps gaps sub-minute), so gap-only segmentation collapses to one giant session. The span cap is an explicit compromise: it manufactures boundaries where the transport log never goes quiet, and it is called out here rather than pretending idle detection worked on raw traffic.
+The earlier raw-gap approach collapsed because continuous Dropbox/Slack traffic keeps inter-request gaps sub-minute. The derived `activity_events` layer lets those requests remain visible as background context while excluding them from boundary detection.
 
-**Summaries inside a session:** top hosts/paths/apps by raw event counts (not bytes-weighted) to keep computation simple and aligned with “what the network saw.”
+**Estimated duration:** each foreground observation receives bounded dwell time until the next active observation in the same session, capped at **10 minutes**. This is still a proxy, but it is closer to attention than raw request counts or raw wall-clock span.
+
+**Summaries inside a session:** top activity categories/hints/hosts/paths/apps are foreground-weighted. Background hosts and classifier reasons are attached separately so the labeler can see noise without using it as the primary label.
 
 ## Metrics for the API questions
 
-- **Focus score (0–1):** longest run of consecutive events sharing the same `(source_app, tab_id)` where each step gap ≤ **2 minutes**, divided by the session wall span. Rewards sustained single-tab / single-app stretches.
-- **Fragmentation score (0–1):** `0.55 * (app switches between consecutive events) + 0.45 * min(1, unique_hosts / sqrt(n))`, capped at 1. Rewards rapid app churn and host diversity.
-- **“Time spent on” (ranking):** for each session, allocate its `duration_sec` across hosts **in proportion to event counts** inside that session, then sum globally by host. This is a deliberate proxy: HTTP events are not dwell time, but this definition is stable, explainable, and cheap.
+- **Focus score (0–1):** longest run over the same tab/app/category context, using foreground observations with gaps ≤ **10 minutes**, divided by estimated active time. Rewards sustained active contexts rather than Dropbox long-poll streams.
+- **Fragmentation score (0–1):** `0.55 * (activity-category switches between consecutive observations) + 0.45 * min(1, unique foreground hosts / sqrt(n))`, capped at 1. Rewards actual context churn and foreground host diversity.
+- **“Time spent on” (ranking):** foreground/unknown observations receive bounded dwell time until the next observation, multiplied by classifier weight, then grouped by activity category. Background sync, telemetry, and static assets are excluded from the ranking.
 - **Sessions in a time window:** `GET /sessions?from=…&to=…` accepts optional ISO 8601 bounds (same parse rules as ingest). With both bounds, rows are those whose `[start_ms, end_ms]` **overlaps** the interval; one bound alone gives an open-ended filter. Invalid strings or `from` > `to` return **400**.
 
 ## LLM labeling design
 
 - **Provider:** OpenAI Chat Completions (`gpt-4o-mini` default), `OPENAI_API_KEY` + optional `OPENAI_MODEL`.
-- **Grounding:** system prompt requires JSON output (`label`, `rationale`, `confidence`) and forbids inventing destinations not present in the provided top-host/path/app lists; conservative copy for ambiguous/pollution-heavy sessions.
-- **Context caps:** only session bounds, counts, and truncated top-N lists go into the prompt — never the full event list.
+- **Grounding:** system prompt requires JSON output (`label`, `rationale`, `confidence`) and forbids inventing destinations not present in the foreground activity lists. Background rollups are shown only as “do not use as primary label” context.
+- **Context caps:** only session bounds, foreground category/hint/host/path/app rollups, and truncated background rollups go into the prompt — never the full event list.
 - **Persistence & cost:** labels stored on `sessions`; `POST /sessions/label` and `npm run label` skip rows that already have `label`. Sequential calls with a small delay reduce burst rate limits. Failures write `label_error` and leave the API usable without labels.
 - **Failure modes:** missing key, timeouts/model errors, malformed JSON — caught per session so one bad row does not abort the batch.
 
@@ -50,4 +53,4 @@ Shard by `user_id` + day, append-only event ingest with idempotent natural keys,
 
 ## What was cut (on purpose)
 
-Auth/multi-tenant isolation, streaming ingest, richer CDN collapsing / registrable-domain rollup, browser-only foreground detection, alternative LLM providers in-code, automated tests, OpenAPI generator UI, and perfect alignment between “HTTP intensity” and human “attention minutes.” Those are all reasonable next steps once the core narrative (sessions → questions → grounded labels) is credible.
+Auth/multi-tenant isolation, streaming ingest, robust registrable-domain parsing, learned foreground detection, browser focus telemetry, alternative LLM providers in-code, automated tests, OpenAPI generator UI, and perfect alignment between “HTTP intensity” and human “attention minutes.” Those are all reasonable next steps once the core narrative (sessions → questions → grounded labels) is credible.
