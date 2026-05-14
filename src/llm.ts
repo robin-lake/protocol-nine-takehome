@@ -32,7 +32,7 @@ const SYSTEM_PROMPT = `You label a single user's HTTP activity session for an in
 Rules:
 - Output MUST be a single JSON object with keys: label (string, max 120 chars), rationale (string, max 240 chars), confidence ("high"|"medium"|"low").
 - The label MUST only describe patterns visible in the provided summary lists (hosts, paths, apps). Do not invent sites or activities not supported by the lists.
-- If the session is mostly background sync/polling, say so explicitly (e.g. "Background Slack and Dropbox sync").
+- If the session is mostly background sync/polling, say so using only app/host names from the lists (do not reuse the same opening clause as other sessions when the distinctive paths or hosts differ).
 - If ambiguous, use a conservative label and set confidence to "low".`;
 
 export async function labelSession(
