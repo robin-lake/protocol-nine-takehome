@@ -45,11 +45,12 @@ The earlier raw-gap approach collapsed because continuous Dropbox/Slack traffic 
 - **Grounding:** system prompt requires JSON output (`label`, `rationale`, `confidence`) and forbids inventing destinations not present in the foreground activity lists. Background rollups are shown only as “do not use as primary label” context.
 - **Context caps:** only session bounds, foreground category/hint/host/path/app rollups, and truncated background rollups go into the prompt — never the full event list.
 - **Persistence & cost:** labeling is an explicit batch/API step, not part of ingest, so the core model works without an LLM key. Labels are stored on `sessions`; `POST /sessions/label` and `npm run label` skip rows that already have `label`. Sequential calls with a small delay reduce burst rate limits. Failures write `label_error` and leave the API usable without labels.
+- **Known limitation:** the model asks for `rationale` and `confidence`, but the prototype folds them into the stored label text rather than persisting them as separate structured fields. In production I would store them separately and validate that generated labels only mention foreground evidence provided in the prompt.
 - **Failure modes:** missing key, timeouts/model errors, malformed JSON — caught per session so one bad row does not abort the batch.
 
 ## Scaling beyond one user / one day
 
-Shard by `user_id` + day, append-only event ingest with idempotent natural keys, move SQLite to managed Postgres, precompute sessions in a worker with back-pressure, store summaries suitable for RAG, batch LLM calls with caching keyed by `(session_hash, model_version)`, and add privacy controls (redact paths, PII-safe summarization before any cloud call).
+Shard by `user_id` + day, append-only event ingest with idempotent natural keys, move SQLite to managed Postgres, and precompute sessions in workers with back-pressure. I would make classification rules versioned/configurable so new sources or app-specific noise patterns can be added without changing core session logic. LLM calls should be batched and cached by `(session_hash, model_version)`, with privacy controls before any cloud call: redact paths, remove obvious PII, and keep raw event access tightly scoped. I would also add observability around session counts, background/foreground ratios, label error rates, and drift in top activity categories so bad classifier changes are visible quickly.
 
 ## What was cut (on purpose)
 
